@@ -368,10 +368,15 @@ bot.on(message('text'), async (ctx) => {
 // WEBHOOK SERVER
 // ==================
 
+// ==================
+// WEBHOOK SERVER
+// ==================
+
 const app = express()
 app.use(express.json())
 
 app.post('/webhook/paystack', handlePaystackWebhook)
+app.use(bot.webhookCallback('/webhook/telegram'))
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
@@ -404,8 +409,16 @@ cron.schedule('0 7 * * *', async () => {
 // START BOT
 // ==================
 
-bot.launch()
-console.log('🚀 NaijaJobsAI is live!')
+if (process.env.VERCEL) {
+  const webhookUrl = `https://naija-jobs-ai-bot.vercel.app/webhook/telegram`
+  bot.telegram.setWebhook(webhookUrl).then(() => {
+    console.log('🤖 Telegram webhook set:', webhookUrl)
+  })
+  console.log('🚀 NaijaJobsAI running in webhook mode')
+} else {
+  bot.launch()
+  console.log('🚀 NaijaJobsAI is live in polling mode')
+}
 console.log('📬 Daily alerts: 8am WAT')
 console.log('🔍 Job scraping: every 6 hours')
 
