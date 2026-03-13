@@ -25,13 +25,33 @@ export async function matchJobsToUser(userId: string): Promise<JobMatch[]> {
 
   const excludeIds = existingMatchIds.map((m) => m.jobId)
 
+  const userSectors = cv.sectors || []
+  const userRole = cv.currentRole?.toLowerCase() || ''
+
+  // Determine if user is a tech/professional worker
+  const techKeywords = ['engineer', 'developer', 'analyst', 'manager', 'designer', 
+    'accountant', 'lawyer', 'consultant', 'officer', 'coordinator', 'executive']
+  const isTechProfessional = techKeywords.some(k => userRole.includes(k)) || 
+    userSectors.some(s => ['tech', 'finance', 'banking', 'fintech', 'oil', 'gas'].includes(s.toLowerCase()))
+
+  const tradeKeywords = ['electrician', 'plumber', 'welder', 'mechanic', 'carpenter', 
+    'tailor', 'driver', 'cook', 'chef', 'cleaner', 'security', 'mason']
+  const isTradeProfessional = tradeKeywords.some(k => userRole.includes(k))
+
   const jobs = await prisma.job.findMany({
     where: {
       isActive: true,
       id: { notIn: excludeIds },
+      ...(isTechProfessional && !isTradeProfessional ? {
+        NOT: {
+          OR: tradeKeywords.map(title => ({
+            title: { contains: title, mode: 'insensitive' }
+          }))
+        }
+      } : {})
     },
     orderBy: { postedAt: 'desc' },
-    take: 30,
+    take: 50,
   })
 
   if (jobs.length === 0) return []
