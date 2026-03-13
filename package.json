@@ -10,7 +10,8 @@
     "build": "tsc",
     "migrate": "dotenv -e .env -- prisma migrate dev",
     "generate": "dotenv -e .env -- prisma generate",
-    "studio": "dotenv -e .env -- prisma studio"
+    "studio": "dotenv -e .env -- prisma studio",
+    "postinstall": "prisma generate"
   },
   "keywords": [],
   "author": "",
