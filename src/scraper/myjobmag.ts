@@ -62,17 +62,20 @@ export async function scrapeMyJobMag() {
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   })
 
-  const categoryUrls = [
-    'https://www.myjobmag.com/jobs/it-jobs-in-nigeria',
-    'https://www.myjobmag.com/jobs/banking-jobs-in-nigeria',
-    'https://www.myjobmag.com/jobs/oil-and-gas-jobs-in-nigeria',
-    'https://www.myjobmag.com/jobs/sales-jobs-in-nigeria',
-    'https://www.myjobmag.com/jobs/remote-jobs-in-nigeria',
+  // Use search URLs instead of category pages — more reliable
+  const searchUrls = [
+    { url: 'https://www.myjobmag.com/jobs/software-developer-jobs-in-nigeria', sector: 'Tech' },
+    { url: 'https://www.myjobmag.com/jobs/data-analyst-jobs-in-nigeria', sector: 'Tech' },
+    { url: 'https://www.myjobmag.com/jobs/it-jobs-in-nigeria', sector: 'Tech' },
+    { url: 'https://www.myjobmag.com/jobs/banking-jobs-in-nigeria', sector: 'Banking' },
+    { url: 'https://www.myjobmag.com/jobs/sales-jobs-in-nigeria', sector: 'Sales' },
+    { url: 'https://www.myjobmag.com/jobs/remote-jobs-in-nigeria', sector: 'General' },
   ]
 
   let totalSaved = 0
+  const seenUrls = new Set<string>()
 
-  for (const categoryUrl of categoryUrls) {
+  for (const { url: categoryUrl, sector } of searchUrls) {
     try {
       const page = await browser.newPage()
       await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
@@ -90,7 +93,11 @@ export async function scrapeMyJobMag() {
 
       console.log(`MyJobMag: found ${jobPaths.length} job URLs from ${categoryUrl}`)
 
-      for (const jobPath of jobPaths.slice(0, 10)) {
+      // Filter out already seen URLs to avoid duplicates across categories
+      const newPaths = jobPaths.filter(p => !seenUrls.has(p))
+      newPaths.forEach(p => seenUrls.add(p))
+
+      for (const jobPath of newPaths.slice(0, 10)) {
         const jobUrl = `https://www.myjobmag.com${jobPath}`
         try {
           const jobPage = await browser.newPage()
@@ -100,7 +107,6 @@ export async function scrapeMyJobMag() {
           await new Promise(r => setTimeout(r, 2000))
 
           const jobData = await jobPage.evaluate(() => {
-            // H1 format is "Job Title at Company Name"
             const h1 = document.querySelector('h1')?.textContent?.trim() || ''
             const atIndex = h1.lastIndexOf(' at ')
             const title = atIndex > 0 ? h1.slice(0, atIndex).trim() : h1
@@ -128,7 +134,7 @@ export async function scrapeMyJobMag() {
                 title: jobData.title,
                 company: jobData.company,
                 location: detectLocation(jobData.location),
-                sector: detectSector(jobData.title),
+                sector: detectSector(jobData.title) !== 'General' ? detectSector(jobData.title) : sector,
                 source: 'myjobmag',
                 sourceUrl: jobUrl,
                 salary: jobData.salary || null,
@@ -139,7 +145,7 @@ export async function scrapeMyJobMag() {
               },
               update: {
                 isActive: true,
-                sector: detectSector(jobData.title),
+                sector: detectSector(jobData.title) !== 'General' ? detectSector(jobData.title) : sector,
                 salary: jobData.salary || null,
               },
             })

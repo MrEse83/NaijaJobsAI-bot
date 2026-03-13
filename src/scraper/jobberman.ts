@@ -63,12 +63,17 @@ export async function scrapeJobberman() {
 
   const categoryUrls = [
     'https://www.jobberman.com/jobs/it-software',
+    'https://www.jobberman.com/jobs/it-software?page=2',
+    'https://www.jobberman.com/jobs/it-software?page=3',
     'https://www.jobberman.com/jobs/banking-finance',
+    'https://www.jobberman.com/jobs/banking-finance?page=2',
     'https://www.jobberman.com/jobs/oil-gas-energy',
     'https://www.jobberman.com/jobs/sales-business-development',
+    'https://www.jobberman.com/jobs/sales-business-development?page=2',
   ]
 
   let totalSaved = 0
+  const seenUrls = new Set<string>()
 
   for (const categoryUrl of categoryUrls) {
     try {
@@ -86,9 +91,12 @@ export async function scrapeJobberman() {
           .filter(href => href.includes('/listings/'))
       })
 
-      console.log(`Found ${jobUrls.length} job URLs from ${categoryUrl}`)
+      const newUrls = jobUrls.filter(u => !seenUrls.has(u))
+      newUrls.forEach(u => seenUrls.add(u))
 
-      for (const jobUrl of jobUrls.slice(0, 10)) {
+      console.log(`Found ${jobUrls.length} job URLs (${newUrls.length} new) from ${categoryUrl}`)
+
+      for (const jobUrl of newUrls.slice(0, 10)) {
         try {
           const jobPage = await browser.newPage()
           await jobPage.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
