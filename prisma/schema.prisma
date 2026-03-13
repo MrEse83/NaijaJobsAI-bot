@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String    @id @default(cuid())
+  telegramId      String    @unique
+  telegramHandle  String?
+  name            String?
+  isPremium       Boolean   @default(false)
+  alertTime       String    @default("08:00")
+  isActive        Boolean   @default(true)
+  dailyMatchCount Int       @default(0)
+  dailyCoverCount Int       @default(0)
+  lastUsageReset  DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  cv              CV?
+  matches         JobMatch[]
+  subscription    Subscription?
+  applications    Application[]
+}
+
+model CV {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  rawText     String
+  skills      String[]
+  experience  Int      @default(0)
+  currentRole String?
+  location    String?
+  sectors     String[]
+  salaryMin   Int?
+  salaryMax   Int?
+  education   String?
+  summary     String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Job {
+  id          String   @id @default(cuid())
+  title       String
+  company     String
+  location    String
+  sector      String
+  source      String
+  sourceUrl   String   @unique
+  salary      String?
+  salaryMin   Int?
+  salaryMax   Int?
+  description String
+  skills      String[]
+  isActive    Boolean  @default(true)
+  postedAt    DateTime
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  matches     JobMatch[]
+}
+
+model JobMatch {
+  id        String    @id @default(cuid())
+  userId    String
+  jobId     String
+  score     Float
+  reasons   String[]
+  sentAt    DateTime?
+  wasViewed Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+  job       Job       @relation(fields: [jobId], references: [id])
+  @@unique([userId, jobId])
+}
+
+model Application {
+  id          String   @id @default(cuid())
+  userId      String
+  jobTitle    String
+  company     String
+  appliedAt   DateTime @default(now())
+  status      String   @default("applied")
+  coverLetter String?
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Subscription {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  paystackRef   String?
+  paystackCode  String?
+  plan          String    @default("free")
+  amount        Int?
+  startDate     DateTime?
+  endDate       DateTime?
+  isActive      Boolean   @default(false)
+  autoRenew     Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id])
+}

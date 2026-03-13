@@ -1,0 +1,48 @@
+{
+  "name": "naijajobs-bot",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "start": "ts-node src/index.ts",
+    "scrape": "ts-node src/scraper/index.ts",
+    "alerts": "ts-node src/cron/sendAlerts.ts",
+    "build": "tsc",
+    "migrate": "dotenv -e .env -- prisma migrate dev",
+    "generate": "dotenv -e .env -- prisma generate",
+    "studio": "dotenv -e .env -- prisma studio"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "AI-powered Telegram job matching bot for Nigeria",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@neondatabase/serverless": "^0.10.4",
+    "@prisma/adapter-neon": "^7.4.2",
+    "@prisma/adapter-pg": "^7.4.2",
+    "@prisma/client": "^7.4.2",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.18.0",
+    "anthropic": "^0.0.0",
+    "axios": "^1.9.0",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.5.0",
+    "express": "^5.2.1",
+    "node-cron": "^3.0.3",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.20.0",
+    "puppeteer": "^24.39.0",
+    "telegraf": "^4.16.3",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/pdf-parse": "^1.1.4",
+    "@types/ws": "^8.5.14",
+    "nodemon": "^3.1.10",
+    "prisma": "^7.4.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  }
+}
