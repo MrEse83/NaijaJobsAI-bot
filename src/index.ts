@@ -350,6 +350,34 @@ bot.on(message('text'), async (ctx) => {
     return
   }
 
+  // Handle STATS — admin only
+  if (text === 'STATS' && telegramId === process.env.ADMIN_TELEGRAM_ID) {
+    try {
+      const totalUsers = await prisma.user.count()
+      const activeUsers = await prisma.user.count({ where: { isActive: true } })
+      const premiumUsers = await prisma.user.count({ where: { isPremium: true } })
+      const totalJobs = await prisma.job.count()
+      const thisMonth = new Date()
+      thisMonth.setDate(1)
+      const newUsersThisMonth = await prisma.user.count({
+        where: { createdAt: { gte: thisMonth } }
+      })
+      await ctx.reply(
+        `NaijaJobsAI Stats\n\n` +
+        `Total users: ${totalUsers}\n` +
+        `Active users: ${activeUsers}\n` +
+        `Premium users: ${premiumUsers}\n` +
+        `New this month: ${newUsersThisMonth}\n` +
+        `Jobs in database: ${totalJobs}`
+      )
+    } catch (error) {
+      await ctx.reply('Could not fetch stats. Please try again.')
+    }
+    return
+  }
+
+  
+
   // Help message for everything else
   await ctx.reply(
     `NaijaJobsAI Commands\n\n` +
