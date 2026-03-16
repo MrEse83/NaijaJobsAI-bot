@@ -7,8 +7,8 @@ import { handleStart } from './bot/handlers/start'
 import { handleDocument } from './bot/handlers/cv'
 import { generateCoverLetter } from './ai/coverLetter'
 import { runAllScrapers } from './scraper/index'
-import { sendDailyAlerts } from './cron/sendAlerts'
-import { handlePaystackWebhook } from './bot/handlers/webhook'
+import { sendDailyAlerts, matchAndAlertUser } from './cron/sendAlerts'
+import { createWebhookHandler } from './bot/handlers/webhook'
 import {
   canRequestMatch,
   canRequestCover,
@@ -55,7 +55,7 @@ bot.on(message('text'), async (ctx) => {
 
       await ctx.reply('🔍 Finding your best matches right now...')
       await incrementMatchCount(user.id)
-      await sendDailyAlerts()
+      await matchAndAlertUser(user.id, bot)
       return
 
     } catch (error) {
@@ -152,42 +152,98 @@ bot.on(message('text'), async (ctx) => {
     return
   }
 
+  // ─────────────────────────────────────────────
+// STEP 1 — Add this field to your User model in prisma/schema.prisma
+// ─────────────────────────────────────────────
+
+// Inside the User model, add:
+//   lastPaidClaim  DateTime?
+
+// Then run:
+//   npx prisma migrate dev --name add_last_paid_claim
+// or if on production:
+//   npx prisma db push
+
+
+// ─────────────────────────────────────────────
+// STEP 2 — Replace the PAID block in index.ts with this
+// ─────────────────────────────────────────────
+
   // Handle PAID
   if (text.startsWith('PAID ')) {
     try {
       const user = await prisma.user.findUnique({ where: { telegramId } })
       if (!user) return
 
-      const parts = originalText.split(' ')
-      const amount = parseInt(parts[parts.length - 1])
+      // ── Rate limit: max 1 PAID claim per user per 24 hours ──
+      if (user.lastPaidClaim) {
+        const hoursSinceLast =
+          (Date.now() - new Date(user.lastPaidClaim).getTime()) / (1000 * 60 * 60)
 
-      if (amount < 3000) {
+        if (hoursSinceLast < 24) {
+          const hoursLeft = Math.ceil(24 - hoursSinceLast)
+          await ctx.reply(
+            `You have already submitted a payment claim today.\n\n` +
+            `Please wait ${hoursLeft} hour(s) before submitting again.\n\n` +
+            `If your account has not been activated yet, please contact support.`
+          )
+          return
+        }
+      }
+
+      // ── Already premium? No need to claim ──
+      if (user.isPremium) {
         await ctx.reply(
-          'Payment amount does not match our Premium plan of ₦3,000.\n\n' +
-          'If you made a mistake, please contact support.'
+          `Your account is already Premium.\n\n` +
+          `Reply /status to see your plan details.`
         )
         return
       }
 
+      // ── Validate amount ──
+      const parts = originalText.split(' ')
+      const amount = parseInt(parts[parts.length - 1])
+
+      if (isNaN(amount) || amount < 3000) {
+        await ctx.reply(
+          `Payment amount does not match our Premium plan of ₦3,000.\n\n` +
+          `Please send: PAID 3000\n\n` +
+          `If you made a mistake please contact support.`
+        )
+        return
+      }
+
+      // ── Record the claim timestamp ──
+      await prisma.user.update({
+        where: { telegramId },
+        data: { lastPaidClaim: new Date() },
+      })
+
       await ctx.reply(
-        '✅ Payment received! We will verify and activate your Premium account within 5 minutes.\n\n' +
-        'You will receive a confirmation message once your account is upgraded.'
+        `✅ Payment claim received! We will verify and activate your Premium account within 5 minutes.\n\n` +
+        `You will receive a confirmation message once your account is upgraded.`
       )
 
+      // ── Notify admin ──
       const adminId = process.env.ADMIN_TELEGRAM_ID
       if (adminId) {
         await bot.telegram.sendMessage(
           adminId,
-          `💰 New payment claim!\n\nUser: ${user.name || user.telegramHandle || telegramId}\nTelegram ID: ${telegramId}\nMessage: ${originalText}\n\nReply ACTIVATE ${telegramId} to activate.`
+          `💰 New payment claim!\n\n` +
+          `User: ${user.name || user.telegramHandle || telegramId}\n` +
+          `Telegram ID: ${telegramId}\n` +
+          `Amount claimed: ₦${amount.toLocaleString()}\n` +
+          `Message: ${originalText}\n\n` +
+          `Reply ACTIVATE ${telegramId} to activate.`
         )
       }
 
     } catch (error) {
+      console.error('PAID handler error:', error)
       await ctx.reply('Could not process payment claim. Please try again.')
     }
     return
   }
-
   // Handle ACTIVATE [telegramId] — admin only
   if (text.startsWith('ACTIVATE ')) {
     const adminId = process.env.ADMIN_TELEGRAM_ID
@@ -403,7 +459,7 @@ bot.on(message('text'), async (ctx) => {
 const app = express()
 app.use(express.json())
 
-app.post('/webhook/paystack', handlePaystackWebhook)
+app.post('/webhook/paystack', createWebhookHandler(bot))
 app.use(bot.webhookCallback('/webhook/telegram'))
 
 const PORT = process.env.PORT || 3000
@@ -427,7 +483,7 @@ cron.schedule('0 0,6,12,18 * * *', async () => {
 cron.schedule('0 7 * * *', async () => {
   console.log('📬 Sending daily alerts...')
   try {
-    await sendDailyAlerts()
+    await sendDailyAlerts(bot)
   } catch (error) {
     console.error('Alert error:', error)
   }

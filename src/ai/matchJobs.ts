@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import prisma from '../db/prisma'
+import { getDB } from '../db/prisma'
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -12,6 +12,8 @@ export interface JobMatch {
 }
 
 export async function matchJobsToUser(userId: string): Promise<JobMatch[]> {
+  const prisma = getDB()
+
   const cv = await prisma.cV.findUnique({
     where: { userId },
   })
@@ -25,36 +27,101 @@ export async function matchJobsToUser(userId: string): Promise<JobMatch[]> {
 
   const excludeIds = existingMatchIds.map((m) => m.jobId)
 
-  const userSectors = cv.sectors || []
-  const userRole = cv.currentRole?.toLowerCase() || ''
+  // ─────────────────────────────────────────────
+  // STEP 1: Pre-filter in Prisma — no Claude yet
+  // Goal: get 15 relevant jobs using data we already have
+  // ─────────────────────────────────────────────
 
-  // Determine if user is a tech/professional worker
-  const techKeywords = ['engineer', 'developer', 'analyst', 'manager', 'designer', 
-    'accountant', 'lawyer', 'consultant', 'officer', 'coordinator', 'executive']
-  const isTechProfessional = techKeywords.some(k => userRole.includes(k)) || 
-    userSectors.some(s => ['tech', 'finance', 'banking', 'fintech', 'oil', 'gas'].includes(s.toLowerCase()))
+  const userSectors = (cv.sectors || []).map((s) => s.toLowerCase())
+  const userLocation = cv.location?.toLowerCase() || ''
+  const userSkills = (cv.skills || []).map((s) => s.toLowerCase())
 
-  const tradeKeywords = ['electrician', 'plumber', 'welder', 'mechanic', 'carpenter', 
-    'tailor', 'driver', 'cook', 'chef', 'cleaner', 'security', 'mason']
-  const isTradeProfessional = tradeKeywords.some(k => userRole.includes(k))
+  const tradeKeywords = [
+    'electrician', 'plumber', 'welder', 'mechanic', 'carpenter',
+    'tailor', 'driver', 'cook', 'chef', 'cleaner', 'security', 'mason',
+  ]
 
-  const jobs = await prisma.job.findMany({
-    where: {
-      isActive: true,
-      id: { notIn: excludeIds },
-      ...(isTechProfessional && !isTradeProfessional ? {
-        NOT: {
-          OR: tradeKeywords.map(title => ({
-            title: { contains: title, mode: 'insensitive' }
-          }))
+  const isTechProfessional =
+    userSectors.some((s) =>
+      ['tech', 'finance', 'banking', 'fintech', 'oil', 'gas'].includes(s)
+    ) ||
+    [
+      'engineer', 'developer', 'analyst', 'manager', 'designer',
+      'accountant', 'lawyer', 'consultant', 'officer', 'coordinator', 'executive',
+    ].some((k) => (cv.currentRole?.toLowerCase() || '').includes(k))
+
+  // Build a priority-ordered list of candidate jobs from DB
+  // Round 1: same sector AND same location (best matches)
+  // Round 2: same sector only
+  // Round 3: recent jobs that are not trade roles (fallback)
+
+  let jobs: Awaited<ReturnType<typeof prisma.job.findMany>> = []
+
+  const baseWhere = {
+    isActive: true,
+    id: { notIn: excludeIds },
+    ...(isTechProfessional
+      ? {
+          NOT: {
+            OR: tradeKeywords.map((t) => ({
+              title: { contains: t, mode: 'insensitive' as const },
+            })),
+          },
         }
-      } : {})
-    },
-    orderBy: { postedAt: 'desc' },
-    take: 50,
-  })
+      : {}),
+  }
+
+  // Round 1 — sector + location match
+  if (userSectors.length > 0 && userLocation) {
+    const round1 = await prisma.job.findMany({
+      where: {
+        ...baseWhere,
+        sector: { in: cv.sectors, mode: 'insensitive' },
+        location: { contains: userLocation, mode: 'insensitive' },
+      },
+      orderBy: { postedAt: 'desc' },
+      take: 10,
+    })
+    jobs = round1
+  }
+
+  // Round 2 — sector match only (if round 1 gave us fewer than 10)
+  if (jobs.length < 10 && userSectors.length > 0) {
+    const existingIds = new Set(jobs.map((j) => j.id))
+    const round2 = await prisma.job.findMany({
+      where: {
+        ...baseWhere,
+        id: { notIn: [...excludeIds, ...Array.from(existingIds)] },
+        sector: { in: cv.sectors, mode: 'insensitive' },
+      },
+      orderBy: { postedAt: 'desc' },
+      take: 10 - jobs.length,
+    })
+    jobs = [...jobs, ...round2]
+  }
+
+  // Round 3 — recent jobs as fallback (if still fewer than 10)
+  if (jobs.length < 10) {
+    const existingIds = new Set(jobs.map((j) => j.id))
+    const round3 = await prisma.job.findMany({
+      where: {
+        ...baseWhere,
+        id: { notIn: [...excludeIds, ...Array.from(existingIds)] },
+      },
+      orderBy: { postedAt: 'desc' },
+      take: 15 - jobs.length,
+    })
+    jobs = [...jobs, ...round3]
+  }
 
   if (jobs.length === 0) return []
+
+  console.log(`Pre-filtered to ${jobs.length} jobs for Claude (was 50)`)
+
+  // ─────────────────────────────────────────────
+  // STEP 2: Send pre-filtered jobs to Claude
+  // Now only ~10-15 jobs instead of 50
+  // ─────────────────────────────────────────────
 
   const cvSummary = `
 Role: ${cv.currentRole || 'Not specified'}
@@ -66,60 +133,50 @@ Salary range: ₦${cv.salaryMin?.toLocaleString() || '?'} - ₦${cv.salaryMax?.t
 Education: ${cv.education || 'Not specified'}
   `.trim()
 
-  const jobsList = jobs.map((job, index) => `
+  const jobsList = jobs
+    .map(
+      (job, index) => `
 Job ${index + 1}:
 ID: ${job.id}
 Title: ${job.title}
 Company: ${job.company}
 Location: ${job.location}
 Sector: ${job.sector}
-Skills required: ${job.skills.join(', ')}
+Skills: ${job.skills.join(', ')}
 Salary: ${job.salary || 'Not specified'}
-Description: ${job.description.slice(0, 200)}
-  `.trim()).join('\n\n')
+Description: ${job.description.slice(0, 150)}
+    `.trim()
+    )
+    .join('\n\n')
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1000,
+    max_tokens: 800,
     messages: [
       {
         role: 'user',
         content: `You are a job matching engine for the Nigerian job market.
 
-CANDIDATE PROFILE:
+CANDIDATE:
 ${cvSummary}
 
-AVAILABLE JOBS:
+JOBS:
 ${jobsList}
 
-INSTRUCTIONS:
-Match the candidate to the most relevant jobs from the list above.
-Be practical — a Data Analyst can apply for Data Engineer, BI Analyst, Data Processor, Dashboard Operations, Product Analyst, IT roles, and similar tech-adjacent roles.
-A Software Developer can apply for Frontend, Backend, Fullstack, DevOps, and tech-adjacent roles.
-General sector jobs can still match if the job title is relevant to the candidate.
-Do NOT match completely unrelated roles like Dentist, Driver, Teacher, Cook, Nurse, or purely physical/manual jobs.
-Be generous — it is better to show a 55% match than to show nothing at all.
+Score each job 0 to 1. Be practical — related roles count (e.g. Data Analyst can match Data Engineer, BI Analyst, IT roles).
+Do NOT match completely unrelated roles (Nurse, Driver, Cook, etc.).
 
-Score each job from 0 to 1:
-- 0.8-1.0: Strong match — title and skills align closely
-- 0.6-0.79: Good match — related role, most skills transfer
-- 0.5-0.59: Possible match — different title but skills clearly apply
+Scores:
+- 0.8-1.0: Strong match
+- 0.6-0.79: Good match
+- 0.5-0.59: Possible match
 
-Return ONLY a valid JSON array, no markdown, no explanation, no backticks:
-[
-  {
-    "jobId": "actual_job_id_from_list",
-    "score": 0.87,
-    "reasons": ["Role matches candidate's experience", "SQL and Python skills align", "Lagos location"]
-  }
-]
+Return ONLY a valid JSON array, no markdown, no backticks:
+[{"jobId":"id","score":0.87,"reasons":["reason1","reason2"]}]
 
-Only include jobs with score 0.5 and above.
-Maximum 5 jobs.
-If truly no jobs are relevant, return: []
-Return ONLY the JSON array, nothing else.`
-      }
-    ]
+Only jobs with score >= 0.5. Maximum 5. If none qualify return [].`,
+      },
+    ],
   })
 
   const content = response.content[0]
@@ -129,18 +186,14 @@ Return ONLY the JSON array, nothing else.`
     const cleaned = content.text.replace(/```json|```/g, '').trim()
     console.log('Claude matching response:', cleaned.slice(0, 500))
     const matches: JobMatch[] = JSON.parse(cleaned)
-    console.log('Matches found:', matches.length)
 
-    const goodMatches = matches.filter(m => m.score >= 0.5)
+    const goodMatches = matches.filter((m) => m.score >= 0.5)
+    console.log(`Matches found: ${goodMatches.length}`)
 
+    // Save matches to DB
     for (const match of goodMatches) {
       await prisma.jobMatch.upsert({
-        where: {
-          userId_jobId: {
-            userId,
-            jobId: match.jobId,
-          },
-        },
+        where: { userId_jobId: { userId, jobId: match.jobId } },
         create: {
           userId,
           jobId: match.jobId,
@@ -155,9 +208,8 @@ Return ONLY the JSON array, nothing else.`
     }
 
     return goodMatches
-
   } catch (error) {
-    console.error('Job matching error:', error)
+    console.error('Job matching parse error:', error)
     return []
   }
 }

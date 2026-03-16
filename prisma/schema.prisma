@@ -12,6 +12,7 @@ model User {
   telegramHandle  String?
   name            String?
   isPremium       Boolean   @default(false)
+  lastPaidClaim   DateTime?
   alertTime       String    @default("08:00")
   isActive        Boolean   @default(true)
   dailyMatchCount Int       @default(0)
@@ -60,6 +61,8 @@ model Job {
   expiresAt   DateTime?
   createdAt   DateTime @default(now())
   matches     JobMatch[]
+
+  @@unique([title, company])   // ← add this line
 }
 
 model JobMatch {
