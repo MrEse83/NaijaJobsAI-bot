@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { scrapeJobberman } from './jobberman'
 import { scrapeMyJobMag } from './myjobmag'
+import { scrapeHotNigerianJobs } from './hotnigerianjobs'
 
 export async function runAllScrapers() {
   console.log('🚀 Starting all scrapers...')
@@ -9,6 +10,7 @@ export async function runAllScrapers() {
   const results = {
     jobberman: 0,
     myjobmag: 0,
+    hotnigerianjobs: 0,
     total: 0,
   }
 
@@ -24,14 +26,21 @@ export async function runAllScrapers() {
     console.error('MyJobMag scraper failed:', error)
   }
 
-  results.total = results.jobberman + results.myjobmag
+  try {
+    results.hotnigerianjobs = await scrapeHotNigerianJobs()
+  } catch (error) {
+    console.error('HotNigerianJobs scraper failed:', error)
+  }
+
+  results.total = results.jobberman + results.myjobmag + results.hotnigerianjobs
 
   console.log('================================')
   console.log(`✅ Scraping complete!`)
   console.log(`📊 Results:`)
-  console.log(`   Jobberman: ${results.jobberman} jobs`)
-  console.log(`   MyJobMag:  ${results.myjobmag} jobs`)
-  console.log(`   Total:     ${results.total} jobs`)
+  console.log(`   Jobberman:        ${results.jobberman} jobs`)
+  console.log(`   MyJobMag:         ${results.myjobmag} jobs`)
+  console.log(`   HotNigerianJobs:  ${results.hotnigerianjobs} jobs`)
+  console.log(`   Total:            ${results.total} jobs`)
 
   return results
 }
