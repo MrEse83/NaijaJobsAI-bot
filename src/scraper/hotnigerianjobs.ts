@@ -9,16 +9,14 @@ import {
   sleep,
 } from './utils'
 
-// HotNigerianJobs category URLs — covers all major sectors
 const categoryUrls = [
-  { url: 'https://www.hotnigerianjobs.com/field/168/', sector: 'Tech' },      // Computer / ICT / AI
-  { url: 'https://www.hotnigerianjobs.com/field/169/', sector: 'Tech' },      // Data Analytics
-  { url: 'https://www.hotnigerianjobs.com/field/133/', sector: 'Banking' },   // Finance
-  { url: 'https://www.hotnigerianjobs.com/field/128/', sector: 'Oil & Gas' }, // Oil & Gas
-  { url: 'https://www.hotnigerianjobs.com/field/139/', sector: 'Sales' },     // Marketing & Sales
-  { url: 'https://www.hotnigerianjobs.com/field/130/', sector: 'General' },   // Engineering
-  { url: 'https://www.hotnigerianjobs.com/field/140/', sector: 'General' },   // HR
-  { url: 'https://www.hotnigerianjobs.com/field/131/', sector: 'General' },   // Graduate Trainee
+  { url: 'https://www.hotnigerianjobs.com/field/168/', sector: 'Tech' },
+  { url: 'https://www.hotnigerianjobs.com/field/133/', sector: 'Banking' },
+  { url: 'https://www.hotnigerianjobs.com/field/128/', sector: 'Oil & Gas' },
+  { url: 'https://www.hotnigerianjobs.com/field/139/', sector: 'Sales' },
+  { url: 'https://www.hotnigerianjobs.com/field/130/', sector: 'General' },
+  { url: 'https://www.hotnigerianjobs.com/field/233/', sector: 'General' },
+  { url: 'https://www.hotnigerianjobs.com/field/131/', sector: 'General' },
 ]
 
 export async function scrapeHotNigerianJobs(): Promise<number> {
@@ -37,118 +35,175 @@ export async function scrapeHotNigerianJobs(): Promise<number> {
 
   try {
     for (const { url: categoryUrl, sector } of categoryUrls) {
-      // ── Collect job URLs from category page ──
-      let jobUrls: string[] = []
+      let postUrls: string[] = []
       try {
         console.log(`Visiting: ${categoryUrl}`)
-        await page.goto(categoryUrl, { waitUntil: 'networkidle2', timeout: 30000 })
+        await page.goto(categoryUrl, { waitUntil: 'domcontentloaded', timeout: 35000 })
         await sleep(3000)
 
-        jobUrls = await page.evaluate(() => {
-          return Array.from(document.querySelectorAll('a[href]'))
+        postUrls = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('a[href*="/hotjobs/"]'))
             .map((a) => a.getAttribute('href') || '')
-            .filter((href) =>
-              href.includes('hotnigerianjobs.com/jobs/') ||
-              href.match(/hotnigerianjobs\.com\/\d+\//)
-            )
+            .filter((href) => href.includes('/hotjobs/'))
             .filter((v, i, arr) => arr.indexOf(v) === i)
         })
-
-        // fallback — get all internal links containing job patterns
-        if (jobUrls.length === 0) {
-          jobUrls = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('h2 a, h3 a, .job-title a'))
-              .map((a) => a.getAttribute('href') || '')
-              .filter((href) => href.length > 10)
-              .filter((v, i, arr) => arr.indexOf(v) === i)
-          })
-        }
       } catch (error) {
         console.error(`Failed to load ${categoryUrl}:`, error)
         continue
       }
 
-      const newUrls = jobUrls.filter((u) => !seenUrls.has(u))
-      newUrls.forEach((u) => seenUrls.add(u))
-      console.log(`Found ${jobUrls.length} URLs (${newUrls.length} new) from ${categoryUrl}`)
+      const newPostUrls = postUrls.filter((u) => !seenUrls.has(u))
+      newPostUrls.forEach((u) => seenUrls.add(u))
+      console.log(`Found ${postUrls.length} posts (${newPostUrls.length} new) from ${categoryUrl}`)
 
-      // ── Scrape each job ──
-      for (const jobUrl of newUrls.slice(0, 10)) {
-        const fullUrl = jobUrl.startsWith('http')
-          ? jobUrl
-          : `https://www.hotnigerianjobs.com${jobUrl}`
+      for (const postUrl of newPostUrls.slice(0, 10)) {
+        const fullUrl = postUrl.startsWith('http')
+          ? postUrl
+          : `https://www.hotnigerianjobs.com${postUrl}`
 
         try {
-          await page.goto(fullUrl, { waitUntil: 'networkidle2', timeout: 20000 })
+          await page.goto(fullUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
           await sleep(2000)
 
           const jobData = await page.evaluate(() => {
-            const title = document.querySelector('h1, h2.job-title, .entry-title')
+            const h1 = document.querySelector('h1')?.textContent?.trim() || ''
+
+            // Format 1: "Company Name Job Recruitment (X Positions)"
+            const recruitmentMatch = h1.match(/^(.+?)\s+(?:Job Recruitment|Internship & Exp|Graduate|Massive Recruitment)/i)
+            // Format 2: "Job Title at Company Name" (single job posts)
+            const atMatch = h1.match(/\bat\s+(.+?)(?:\s*[-|]|$)/i)
+            // Format 3: dedicated company element
+            const metaCompany = document.querySelector('.company, .employer, [itemprop="hiringOrganization"]')
               ?.textContent?.trim() || ''
 
-            // Company name often appears after "at" in title or in a dedicated element
-            const companyEl = document.querySelector('.company-name, .employer, [class*="company"]')
-            let company = companyEl?.textContent?.trim() || ''
-
-            // Try to extract company from title if not found
-            if (!company) {
-              const atIndex = title.lastIndexOf(' at ')
-              if (atIndex > 0) company = title.slice(atIndex + 4).trim()
-            }
-
-            // Try meta description or body text for company
-            if (!company) {
-              const bodyText = document.body?.textContent || ''
-              const match = bodyText.match(/(?:Company|Employer|Organisation):\s*([^\n]+)/i)
-              company = match?.[1]?.trim() || ''
-            }
+            const company = recruitmentMatch?.[1]?.trim() || metaCompany || atMatch?.[1]?.trim() || ''
 
             const allText = document.body?.textContent || ''
-
             const location = allText.match(
-              /(Lagos|Abuja|Port Harcourt|Kano|Ibadan|Remote|Benin City|Enugu|Calabar|Owerri|Warri|Uyo|Jos|Ilorin|Ogun|Oyo|Nigeria)/i
+              /(Lagos|Abuja|Port Harcourt|Kano|Ibadan|Remote|Benin City|Enugu|Calabar|Owerri|Warri|Uyo|Jos|Ilorin|Nigeria)/i
             )?.[0] || 'Nigeria'
 
-            const salaryMatch = allText.match(/[₦N]\s?[\d,]+(\s?[-–]\s?[₦N]?\s?[\d,]+)?/)
+            const salaryMatch = allText.match(/(?:Salary|NGN|N)\s?[\d,]+(\s?[-]\s?(?:NGN|N)?\s?[\d,]+)?/i)
             const salary = salaryMatch?.[0]?.slice(0, 50) || ''
 
-            const descEl = document.querySelector(
-              '.job-description, .entry-content, article, .content-area, main'
-            )
-            const description = descEl?.textContent?.trim().slice(0, 500) || ''
+            const articleEl = document.querySelector('.entry-content, article, #content, .post-content')
+            const description = articleEl?.textContent?.trim().slice(0, 500) || ''
 
-            return { title, company, location, salary, description }
+            // Extract positions — try multiple selectors
+            const positions: string[] = []
+
+            if (articleEl) {
+              // Try <li> items that look like job titles (short, no action words)
+              articleEl.querySelectorAll('li').forEach((el) => {
+                const text = el.textContent?.trim() || ''
+                if (
+                  text.length > 5 &&
+                  text.length < 80 &&
+                  !text.toLowerCase().includes('apply') &&
+                  !text.toLowerCase().includes('deadline') &&
+                  !text.toLowerCase().includes('click') &&
+                  !text.toLowerCase().includes('subscribe') &&
+                  !text.toLowerCase().includes('requirement') &&
+                  !text.toLowerCase().includes('qualification') &&
+                  !text.toLowerCase().includes('how to') &&
+                  !text.toLowerCase().includes('method') &&
+                  !text.match(/^\d+$/)
+                ) {
+                  positions.push(text)
+                }
+              })
+
+              // If no li items found, try strong/b
+              if (positions.length === 0) {
+                articleEl.querySelectorAll('strong, b').forEach((el) => {
+                  const text = el.textContent?.trim() || ''
+                  if (
+                    text.length > 5 &&
+                    text.length < 80 &&
+                    !text.toLowerCase().includes('apply') &&
+                    !text.toLowerCase().includes('deadline') &&
+                    !text.toLowerCase().includes('click') &&
+                    !text.toLowerCase().includes('requirement') &&
+                    !text.match(/^\d+$/)
+                  ) {
+                    positions.push(text)
+                  }
+                })
+              }
+            }
+
+            // For single job posts (Format 2), extract title from h1
+            const isSingleJob = !h1.match(/\d+\s*Positions?/i) && atMatch
+            const singleJobTitle = isSingleJob
+              ? h1.replace(/\s+at\s+.+$/i, '').trim()
+              : ''
+
+            return { company, location, salary, description, positions, h1, singleJobTitle }
           })
 
-          // Clean up title — remove company from it if appended
-          let cleanTitle = jobData.title
-          if (jobData.company && cleanTitle.includes(jobData.company)) {
-            cleanTitle = cleanTitle.replace(jobData.company, '').replace(/\s+at\s*$/, '').trim()
+          if (!jobData.company) {
+            console.log(`⚠️ Skipped — no company: ${fullUrl}`)
+            continue
           }
 
-          if (cleanTitle && jobData.company) {
+          // Single job post — save directly
+          if (jobData.singleJobTitle) {
             await upsertJob({
-              title: cleanTitle,
+              title: jobData.singleJobTitle,
               company: jobData.company,
               location: detectLocation(jobData.location),
-              sector: detectSector(cleanTitle) !== 'General'
-                ? detectSector(cleanTitle)
+              sector: detectSector(jobData.singleJobTitle) !== 'General'
+                ? detectSector(jobData.singleJobTitle)
                 : sector,
               source: 'hotnigerianjobs',
               sourceUrl: fullUrl,
               salary: jobData.salary || null,
-              description: jobData.description || `${cleanTitle} at ${jobData.company}`,
-              skills: extractSkills(`${cleanTitle} ${jobData.description}`),
+              description: jobData.description || `${jobData.singleJobTitle} at ${jobData.company}`,
+              skills: extractSkills(`${jobData.singleJobTitle} ${jobData.description}`),
             })
             totalSaved++
-            console.log(`✅ Saved: ${cleanTitle} at ${jobData.company}`)
+            console.log(`✅ Saved: ${jobData.singleJobTitle} at ${jobData.company}`)
+            await sleep(1000)
+            continue
+          }
+
+          // Multi-position post — save each position
+          if (jobData.positions.length > 0) {
+            for (const position of jobData.positions.slice(0, 10)) {
+              await upsertJob({
+                title: position,
+                company: jobData.company,
+                location: detectLocation(jobData.location),
+                sector: detectSector(position) !== 'General' ? detectSector(position) : sector,
+                source: 'hotnigerianjobs',
+                sourceUrl: fullUrl,
+                salary: jobData.salary || null,
+                description: jobData.description || `${position} at ${jobData.company}`,
+                skills: extractSkills(`${position} ${jobData.description}`),
+              })
+              totalSaved++
+              console.log(`✅ Saved: ${position} at ${jobData.company}`)
+            }
           } else {
-            console.log(`⚠️ Skipped — missing title or company: ${fullUrl}`)
+            // Fallback — save h1 as the job title
+            await upsertJob({
+              title: jobData.h1,
+              company: jobData.company,
+              location: detectLocation(jobData.location),
+              sector,
+              source: 'hotnigerianjobs',
+              sourceUrl: fullUrl,
+              salary: jobData.salary || null,
+              description: jobData.description || `${jobData.h1} at ${jobData.company}`,
+              skills: extractSkills(`${jobData.h1} ${jobData.description}`),
+            })
+            totalSaved++
+            console.log(`✅ Saved (fallback): ${jobData.h1} at ${jobData.company}`)
           }
 
           await sleep(1000)
-        } catch (jobError) {
-          console.error(`Error scraping ${fullUrl}:`, jobError)
+        } catch (postError) {
+          console.error(`Error scraping ${fullUrl}:`, postError)
         }
       }
     }

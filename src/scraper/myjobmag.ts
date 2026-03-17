@@ -40,8 +40,8 @@ export async function scrapeMyJobMag(): Promise<number> {
       let jobPaths: string[] = []
       try {
         console.log(`Visiting: ${categoryUrl}`)
-        await page.goto(categoryUrl, { waitUntil: 'networkidle2', timeout: 30000 })
-        await sleep(4000)
+        await page.goto(categoryUrl, { waitUntil: 'domcontentloaded', timeout: 45000 })
+        await sleep(5000)
 
         jobPaths = await page.evaluate(() => {
           return Array.from(document.querySelectorAll('a[href*="/job/"]'))
@@ -62,7 +62,7 @@ export async function scrapeMyJobMag(): Promise<number> {
       for (const jobPath of newPaths.slice(0, 10)) {
         const jobUrl = `https://www.myjobmag.com${jobPath}`
         try {
-          await page.goto(jobUrl, { waitUntil: 'networkidle2', timeout: 20000 })
+          await page.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 35000 })
           await sleep(2000)
 
           const jobData = await page.evaluate(() => {
