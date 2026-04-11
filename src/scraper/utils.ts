@@ -95,7 +95,15 @@ export function extractSkills(text: string): string[] {
 export const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-export const BROWSER_ARGS = ['--no-sandbox', '--disable-setuid-sandbox']
+export const BROWSER_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--no-first-run',
+  '--no-zygote',
+  '--single-process',
+]
 
 export function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
