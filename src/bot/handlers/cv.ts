@@ -1,12 +1,10 @@
 import { Context } from 'telegraf'
-import { message } from 'telegraf/filters'
-import * as fs from 'fs'
-import * as path from 'path'
 import axios from 'axios'
 import * as pdfParse from 'pdf-parse'
 const pdf = (pdfParse as any).default || pdfParse
-import prisma from '../../db/prisma'
+import { getDB } from '../../db/prisma'
 import { extractCVData } from '../../ai/parseCV'
+import { embedCV } from '../../ai/embeddings' // ← NEW
 
 export async function handleDocument(ctx: Context) {
   const telegramId = ctx.from?.id.toString()
@@ -16,7 +14,6 @@ export async function handleDocument(ctx: Context) {
   const document = ctx.message?.document
   if (!document) return
 
-  // Check if it's a PDF
   if (document.mime_type !== 'application/pdf') {
     await ctx.reply(
       '⚠️ Please send your CV as a *PDF file* only.\n\n' +
@@ -26,7 +23,6 @@ export async function handleDocument(ctx: Context) {
     return
   }
 
-  // Check file size (max 5MB)
   if (document.file_size > 5 * 1024 * 1024) {
     await ctx.reply('⚠️ Your CV file is too large. Please send a PDF under 5MB.')
     return
@@ -35,15 +31,14 @@ export async function handleDocument(ctx: Context) {
   await ctx.reply('📄 Got your CV! Give me a moment to read through it...')
 
   try {
-    // Get file URL from Telegram
+    const prisma = getDB()
+
     const fileLink = await ctx.telegram.getFileLink(document.file_id)
     const fileUrl = fileLink.href
 
-    // Download the PDF as buffer
     const response = await axios.get(fileUrl, { responseType: 'arraybuffer' })
     const pdfBuffer = Buffer.from(response.data)
 
-    // Extract text from PDF
     const pdfData = await pdf(pdfBuffer)
     const rawText = pdfData.text
 
@@ -57,10 +52,8 @@ export async function handleDocument(ctx: Context) {
 
     await ctx.reply('🤖 Analysing your CV with AI...')
 
-    // Send to Claude AI to extract structured data
     const cvData = await extractCVData(rawText)
 
-    // Save to database
     const user = await prisma.user.findUnique({ where: { telegramId } })
     if (!user) return
 
@@ -93,7 +86,11 @@ export async function handleDocument(ctx: Context) {
       },
     })
 
-    // Confirm to user
+    // ── Embed CV in background — don't block the user response ──
+    embedCV(user.id).catch((err) =>
+      console.error('CV embedding failed (non-critical):', err)
+    )
+
     await ctx.reply(
       `✅ *CV analysed successfully!*\n\n` +
       `Here's what I found:\n\n` +

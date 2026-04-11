@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import cron from 'node-cron'
 import { Telegraf } from 'telegraf'
+import { getDB } from '../db/prisma'
 import { runAllScrapers } from '../scraper/index'
 import { sendDailyAlerts } from './sendAlerts'
 import { expirePremiumSubscriptions } from './expireSubscriptions'
@@ -16,6 +17,24 @@ export function startScheduler(bot: Telegraf) {
       await runAllScrapers()
     } catch (error) {
       console.error('Scheduled scrape error:', error)
+    }
+  })
+
+  // Expire old jobs daily at 4am WAT (3am UTC)
+  // Jobs older than 30 days are marked inactive
+  cron.schedule('0 3 * * *', async () => {
+    console.log('🗑️ Expiring old jobs...')
+    try {
+      const prisma = getDB()
+      const result = await prisma.$executeRaw`
+        UPDATE "Job"
+        SET "isActive" = false
+        WHERE "postedAt" < NOW() - INTERVAL '30 days'
+        AND "isActive" = true
+      `
+      console.log(`✅ Expired ${result} old jobs`)
+    } catch (error) {
+      console.error('Job expiry error:', error)
     }
   })
 
@@ -42,6 +61,7 @@ export function startScheduler(bot: Telegraf) {
 
   console.log('✅ Scheduler running:')
   console.log('   🔍 Job scraping: every 6 hours')
+  console.log('   🗑️ Job expiry: 4am WAT daily')
   console.log('   💳 Subscription expiry: 6am WAT daily')
   console.log('   📬 Daily alerts: 8am WAT daily')
 }

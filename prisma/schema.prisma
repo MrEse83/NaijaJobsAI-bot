@@ -29,6 +29,7 @@ model CV {
   id          String   @id @default(cuid())
   userId      String   @unique
   rawText     String
+  embedding  Float[]
   skills      String[]
   experience  Int      @default(0)
   currentRole String?
@@ -47,6 +48,7 @@ model Job {
   id          String   @id @default(cuid())
   title       String
   company     String
+  embedding  Float[]
   location    String
   sector      String
   source      String

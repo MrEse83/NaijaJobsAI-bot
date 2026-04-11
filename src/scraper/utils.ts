@@ -6,6 +6,10 @@ export const NIGERIAN_CITIES = [
   'Lagos', 'Abuja', 'Port Harcourt', 'Kano', 'Ibadan',
   'Kaduna', 'Enugu', 'Benin City', 'Warri', 'Calabar',
   'Owerri', 'Uyo', 'Jos', 'Ilorin', 'Abeokuta', 'Remote',
+  'Asaba', 'Akure', 'Ado-Ekiti', 'Sokoto', 'Maiduguri',
+  'Zaria', 'Bauchi', 'Makurdi', 'Awka', 'Onitsha', 'Nnewi',
+  'Ogun', 'Ekiti', 'Delta', 'Anambra', 'Imo', 'Rivers',
+  'Hybrid',
 ]
 
 export function detectLocation(text: string): string {
@@ -14,9 +18,13 @@ export function detectLocation(text: string): string {
   for (const city of NIGERIAN_CITIES) {
     if (textLower.includes(city.toLowerCase())) return city
   }
-  if (textLower.includes('ph') || textLower.includes('rivers')) return 'Port Harcourt'
+  if (textLower.includes('ph') || textLower.includes('rivers state')) return 'Port Harcourt'
   if (textLower.includes('fct')) return 'Abuja'
-  if (textLower.includes('remote') || textLower.includes('hybrid')) return 'Remote'
+  if (textLower.includes('remote') || textLower.includes('work from home')) return 'Remote'
+  if (textLower.includes('hybrid')) return 'Hybrid'
+  if (textLower.includes('delta state')) return 'Asaba'
+  if (textLower.includes('anambra')) return 'Awka'
+  if (textLower.includes('imo state')) return 'Owerri'
   return 'Nigeria'
 }
 
@@ -31,23 +39,40 @@ export function detectSector(title: string): string {
     t.includes('full-stack') || t.includes('it support') ||
     t.includes('ict') || t.includes('cybersecurity') ||
     t.includes('cloud') || t.includes('machine learning') ||
-    t.includes('ai ')
+    t.includes('artificial intelligence') || t.includes('ai ')
   ) return 'Tech'
   if (
     t.includes('bank') || t.includes('finance') ||
     t.includes('account') || t.includes('audit') ||
     t.includes('credit') || t.includes('loan') ||
-    t.includes('investment') || t.includes('insurance')
+    t.includes('investment') || t.includes('insurance') ||
+    t.includes('fintech') || t.includes('microfinance')
   ) return 'Banking'
   if (
     t.includes('oil') || t.includes('gas') ||
-    t.includes('petroleum') || t.includes('drilling')
+    t.includes('petroleum') || t.includes('drilling') ||
+    t.includes('upstream') || t.includes('downstream')
   ) return 'Oil & Gas'
   if (
     t.includes('sales') || t.includes('marketing') ||
     t.includes('business dev') || t.includes('acquisition') ||
-    t.includes('growth') || t.includes('brand')
+    t.includes('growth') || t.includes('brand') ||
+    t.includes('digital marketing') || t.includes('social media')
   ) return 'Sales'
+  if (
+    t.includes('nurse') || t.includes('doctor') ||
+    t.includes('pharmacist') || t.includes('medical') ||
+    t.includes('health') || t.includes('clinical')
+  ) return 'Healthcare'
+  if (
+    t.includes('teacher') || t.includes('lecturer') ||
+    t.includes('tutor') || t.includes('education') ||
+    t.includes('school') || t.includes('academic')
+  ) return 'Education'
+  if (
+    t.includes('hr') || t.includes('human resource') ||
+    t.includes('recruitment') || t.includes('talent')
+  ) return 'HR'
   return 'General'
 }
 
@@ -58,6 +83,10 @@ export function extractSkills(text: string): string[] {
     'Laravel', 'Django', 'Flutter', 'Data Analysis', 'Excel',
     'PowerBI', 'Tableau', 'Sales', 'Marketing', 'Finance',
     'Accounting', 'Project Management', 'Agile', 'Scrum',
+    'Vue.js', 'Angular', 'Next.js', 'GraphQL', 'REST API',
+    'Git', 'Linux', 'Kubernetes', 'Terraform', 'Azure', 'GCP',
+    'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch',
+    'Communication', 'Leadership', 'Teamwork', 'Problem Solving',
   ]
   const textLower = text.toLowerCase()
   return keywords.filter((k) => textLower.includes(k.toLowerCase()))
@@ -74,8 +103,7 @@ export function sleep(ms: number) {
 
 // ─────────────────────────────────────────────
 // Shared upsert — deduplicates by title + company
-// If a job already exists from another source,
-// we update it instead of creating a duplicate
+// Embeds job in background after saving
 // ─────────────────────────────────────────────
 interface UpsertJobParams {
   title: string
@@ -91,9 +119,10 @@ interface UpsertJobParams {
 
 export async function upsertJob(params: UpsertJobParams): Promise<void> {
   const { getDB } = await import('../db/prisma')
+  const { embedJob } = await import('../ai/embeddings')
   const prisma = getDB()
 
-  // Check if job already exists by title + company (cross-source duplicate)
+  // Check if job already exists by title + company
   const existing = await prisma.job.findFirst({
     where: {
       title: { equals: params.title, mode: 'insensitive' },
@@ -102,8 +131,6 @@ export async function upsertJob(params: UpsertJobParams): Promise<void> {
   })
 
   if (existing) {
-    // Job already exists — just update active status and salary
-    // Keep the original sourceUrl (first source wins)
     await prisma.job.update({
       where: { id: existing.id },
       data: {
@@ -116,7 +143,7 @@ export async function upsertJob(params: UpsertJobParams): Promise<void> {
   }
 
   // New job — insert fresh
-  await prisma.job.upsert({
+  const created = await prisma.job.upsert({
     where: { sourceUrl: params.sourceUrl },
     create: {
       title: params.title,
@@ -137,4 +164,11 @@ export async function upsertJob(params: UpsertJobParams): Promise<void> {
       salary: params.salary,
     },
   })
+
+  // Embed new job in background — non-blocking
+  if (created?.id) {
+    embedJob(created.id).catch((err) =>
+      console.error(`Job embedding failed for ${created.id}:`, err)
+    )
+  }
 }
