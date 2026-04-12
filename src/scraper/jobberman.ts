@@ -10,14 +10,38 @@ import {
 } from './utils'
 
 const categoryUrls = [
+  // Tech — 5 pages
   'https://www.jobberman.com/jobs/it-software',
   'https://www.jobberman.com/jobs/it-software?page=2',
   'https://www.jobberman.com/jobs/it-software?page=3',
+  'https://www.jobberman.com/jobs/it-software?page=4',
+  'https://www.jobberman.com/jobs/it-software?page=5',
+  // Banking & Finance — 3 pages
   'https://www.jobberman.com/jobs/banking-finance',
   'https://www.jobberman.com/jobs/banking-finance?page=2',
+  'https://www.jobberman.com/jobs/banking-finance?page=3',
+  // Oil & Gas — 2 pages
   'https://www.jobberman.com/jobs/oil-gas-energy',
+  'https://www.jobberman.com/jobs/oil-gas-energy?page=2',
+  // Sales & Business Dev — 3 pages
   'https://www.jobberman.com/jobs/sales-business-development',
   'https://www.jobberman.com/jobs/sales-business-development?page=2',
+  'https://www.jobberman.com/jobs/sales-business-development?page=3',
+  // New categories
+  'https://www.jobberman.com/jobs/engineering-technical',
+  'https://www.jobberman.com/jobs/engineering-technical?page=2',
+  'https://www.jobberman.com/jobs/accounting',
+  'https://www.jobberman.com/jobs/accounting?page=2',
+  'https://www.jobberman.com/jobs/human-resources',
+  'https://www.jobberman.com/jobs/human-resources?page=2',
+  'https://www.jobberman.com/jobs/marketing-communications',
+  'https://www.jobberman.com/jobs/marketing-communications?page=2',
+  'https://www.jobberman.com/jobs/project-management',
+  'https://www.jobberman.com/jobs/customer-service',
+  'https://www.jobberman.com/jobs/graduate-jobs',
+  'https://www.jobberman.com/jobs/graduate-jobs?page=2',
+  'https://www.jobberman.com/jobs/remote-jobs',
+  'https://www.jobberman.com/jobs/remote-jobs?page=2',
 ]
 
 export async function scrapeJobberman(): Promise<number> {

@@ -10,6 +10,16 @@ import { expirePremiumSubscriptions } from './expireSubscriptions'
 export function startScheduler(bot: Telegraf) {
   console.log('⏰ NaijaJobsAI Scheduler starting...')
 
+  // Keep Neon DB alive — pings every 5 minutes to prevent sleep
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const prisma = getDB()
+      await prisma.$queryRaw`SELECT 1`
+    } catch (error) {
+      console.error('DB keepalive failed:', error)
+    }
+  })
+
   // Scrape jobs every 6 hours: 12am, 6am, 12pm, 6pm
   cron.schedule('0 0,6,12,18 * * *', async () => {
     console.log('🔍 Starting scheduled job scrape...')
@@ -60,6 +70,7 @@ export function startScheduler(bot: Telegraf) {
   })
 
   console.log('✅ Scheduler running:')
+  console.log('   💓 DB keepalive: every 5 minutes')
   console.log('   🔍 Job scraping: every 6 hours')
   console.log('   🗑️ Job expiry: 4am WAT daily')
   console.log('   💳 Subscription expiry: 6am WAT daily')
