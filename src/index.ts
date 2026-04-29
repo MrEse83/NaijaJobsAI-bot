@@ -493,18 +493,15 @@ cron.schedule('0 7 * * *', async () => {
 // START BOT
 // ==================
 
-if (process.env.VERCEL) {
-  const webhookUrl = `https://naija-jobs-ai-bot.vercel.app/webhook/telegram`
-  bot.telegram.setWebhook(webhookUrl).then(() => {
-    console.log('🤖 Telegram webhook set:', webhookUrl)
+if (process.env.WEBHOOK_URL) {
+  bot.telegram.setWebhook(process.env.WEBHOOK_URL).then(() => {
+    console.log('🤖 Telegram webhook set:', process.env.WEBHOOK_URL)
   })
   console.log('🚀 NaijaJobsAI running in webhook mode')
 } else {
   bot.launch()
   console.log('🚀 NaijaJobsAI is live in polling mode')
 }
-console.log('📬 Daily alerts: 8am WAT')
-console.log('🔍 Job scraping: every 6 hours')
 
 process.once('SIGINT', () => bot.stop('SIGINT'))
 process.once('SIGTERM', () => bot.stop('SIGTERM'))
